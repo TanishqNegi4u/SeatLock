@@ -13,29 +13,51 @@ export let options = {
 };
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+const EVENT_ID = __ENV.EVENT_ID || 1;
+
+function uuidv4() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        var r = (Math.random() * 16) | 0,
+            v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+}
 
 export default function () {
-    // 1. Burst hitting waiting room queue
-    let queueRes = http.post(`${BASE_URL}/api/v1/queue/join`, JSON.stringify({ userId: __VU }), { headers: { 'Content-Type': 'application/json' } });
-    check(queueRes, { 'joined queue': (r) => r.status === 200 || r.status === 202 });
+    const jar = http.cookieJar();
+    const userId = uuidv4();
+    jar.set(BASE_URL, 'seatlock_user_id', userId);
 
+    const params = { headers: { 'Content-Type': 'application/json' } };
+
+    // ── 1. Burst join waiting room queue ─────────────────────────────────────
+    let queueRes = http.post(`${BASE_URL}/api/events/${EVENT_ID}/queue`, null, params);
+    check(queueRes, {
+        'joined waiting room': (r) => r.status === 200,
+    });
+
+    // ── 2. Poll waiting room status until admitted ───────────────────────────
     let admitted = false;
-    for(let i=0; i<10; i++) {
-        let pollRes = http.get(`${BASE_URL}/api/v1/queue/status?userId=${__VU}`);
-        if(pollRes.status === 200 && pollRes.json('status') === 'ADMITTED') {
-            admitted = true;
-            break;
+    for (let i = 0; i < 15; i++) {
+        let pollRes = http.get(`${BASE_URL}/api/events/${EVENT_ID}/queue/status`);
+        if (pollRes.status === 200) {
+            let jsonBody = pollRes.json();
+            if (jsonBody && jsonBody.status === 'ADMITTED') {
+                admitted = true;
+                break;
+            }
         }
         sleep(1);
     }
 
-    if(admitted) {
-        const seatId = Math.floor(Math.random() * 100) + 1;
-        const payload = JSON.stringify({ userId: __VU, seatId: seatId });
-        const params = { headers: { 'Content-Type': 'application/json' } };
-        let lockRes = http.post(`${BASE_URL}/api/v1/seats/lock`, payload, params);
+    // ── 3. If admitted, pick and lock seat ───────────────────────────────────
+    if (admitted) {
+        const seatId = Math.floor(Math.random() * 500) + 1;
+        let lockRes = http.post(`${BASE_URL}/api/events/${EVENT_ID}/seats/${seatId}/lock`, null, params);
         if (lockRes.status === 200) {
-            http.post(`${BASE_URL}/api/v1/seats/book`, payload, params);
+            const idempotencyKey = uuidv4();
+            const bookPayload = JSON.stringify({ seatId: seatId, idempotencyKey: idempotencyKey });
+            http.post(`${BASE_URL}/api/events/${EVENT_ID}/book`, bookPayload, params);
         }
     }
 }

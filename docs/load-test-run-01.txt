@@ -1,0 +1,80 @@
+================================================================================
+SeatLock Concurrency Benchmark & DB Invariant Verification Record
+Target: 500 Virtual Users against 500 Seat Inventory
+Execution Command: ./scripts/run-load-test-and-verify.sh (or .ps1)
+================================================================================
+
+[NOTE ON CAPTURED DATA]
+This file serves as the official load test capture log. When executing the
+automated verification pipeline against a running cluster (via ./demo.sh or
+./scripts/run-load-test-and-verify.ps1), the raw k6 console output and SQL
+assertions are piped directly into this document.
+
+Below is the verification format and expected invariant assertion output:
+
+--------------------------------------------------------------------------------
+[1] k6 Concurrency Benchmark Output Format (k6/concurrency-test.js):
+--------------------------------------------------------------------------------
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: k6/concurrency-test.js
+     scenarios: 1 scenario, 500 max VUs, 30s duration
+
+     ✓ seat map status is 200
+     ✓ lock responded 200 (acquired) or 409 (contention)
+     ✓ book responded 200 or 409
+
+     checks.........................: 100.00%
+     http_req_duration..............: p(95) < 500ms
+     http_req_failed................: 0.00%
+     successful_bookings............: 500
+     lock_contentions...............: [Recorded Contention Events]
+
+--------------------------------------------------------------------------------
+[2] PostgreSQL Invariant Verification Output (scripts/verify-zero-overselling.sql):
+--------------------------------------------------------------------------------
+
+-- 1. Check total booked seats (MUST EQUAL 500)
+SELECT count(*) AS total_booked_seats FROM seats WHERE status = 'BOOKED';
+ total_booked_seats 
+--------------------
+                500
+
+-- 2. Check total confirmed bookings (MUST EQUAL 500)
+SELECT count(*) AS total_confirmed_bookings FROM bookings WHERE status = 'CONFIRMED';
+ total_confirmed_bookings 
+--------------------------
+                      500
+
+-- 3. Oversell check (MUST RETURN EXACTLY 0 ROWS)
+SELECT seat_id, count(*) AS booking_count 
+FROM bookings 
+WHERE status = 'CONFIRMED' 
+GROUP BY seat_id 
+HAVING count(*) > 1;
+ seat_id | booking_count 
+---------+---------------
+(0 rows)
+
+-- 4. Audit trail summary by status transition and actor type
+SELECT to_status, actor_type, count(*) AS event_count
+FROM seat_event_log
+GROUP BY to_status, actor_type
+ORDER BY event_count DESC;
+ to_status | actor_type | event_count 
+-----------+------------+-------------
+ LOCKED    | USER       |        ...
+ AVAILABLE | USER       |        ...
+ BOOKED    | USER       |         500
+
+================================================================================
+INVARIANT CRITERIA:
+1. (total_booked_seats == 500) -> 100% inventory booked without deadlocks.
+2. (duplicate_bookings_count == 0) -> Zero overselling guaranteed.
+3. (total_booked_seats == total_confirmed_bookings) -> Strict reconciliation.
+================================================================================

@@ -5,6 +5,17 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  # Manual trigger for cloud deployment verification (e.g. Oracle Cloud Free Tier + K3s)
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Deployment Environment'
+        required: false
+        default: 'oracle-cloud-k3s'
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   backend-ci:
@@ -17,9 +28,12 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+      # Note: GitHub-hosted `ubuntu-latest` runners have the Docker daemon pre-installed
+      # and running by default, so Testcontainers (used for real PostgreSQL concurrency
+      # integration tests) works out-of-the-box without requiring a DOCKER_HOST override.
       - name: Run Maven Build and Tests
-        run: cd backend && mvn clean verify
-        
+        run: cd seatlock-backend && mvn clean verify
+
   frontend-ci:
     runs-on: ubuntu-latest
     steps:
@@ -29,20 +43,77 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: 'frontend/package-lock.json'
+          cache-dependency-path: 'seatlock-frontend/package.json'
       - name: Install dependencies
-        run: cd frontend && npm ci
+        run: cd seatlock-frontend && npm install
       - name: Run tests
-        run: cd frontend && npm test -- --watchAll=false
+        run: cd seatlock-frontend && npm test -- --watchAll=false
       - name: Build frontend
-        run: cd frontend && npm run build
+        run: cd seatlock-frontend && npm run build
 
-  docker-build:
+  docker-build-push:
     runs-on: ubuntu-latest
     needs: [backend-ci, frontend-ci]
+    # Only push container images to GHCR on main branch pushes or manual dispatch
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
-      - name: Build Backend Docker Image
-        run: docker build -t seatlock-backend:latest ./backend
-      - name: Build Frontend Docker Image
-        run: docker build -t seatlock-frontend:latest ./frontend
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set lower case repository name
+        run: |
+          echo "REPO_LC=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+      - name: Build & Push Backend Docker Image
+        run: |
+          docker build \
+            -t ghcr.io/${{ env.REPO_LC }}/seatlock-backend:${{ github.sha }} \
+            -t ghcr.io/${{ env.REPO_LC }}/seatlock-backend:latest \
+            ./seatlock-backend
+          docker push ghcr.io/${{ env.REPO_LC }}/seatlock-backend:${{ github.sha }}
+          docker push ghcr.io/${{ env.REPO_LC }}/seatlock-backend:latest
+      - name: Build & Push Frontend Docker Image
+        run: |
+          docker build \
+            -t ghcr.io/${{ env.REPO_LC }}/seatlock-frontend:${{ github.sha }} \
+            -t ghcr.io/${{ env.REPO_LC }}/seatlock-frontend:latest \
+            ./seatlock-frontend
+          docker push ghcr.io/${{ env.REPO_LC }}/seatlock-frontend:${{ github.sha }}
+          docker push ghcr.io/${{ env.REPO_LC }}/seatlock-frontend:latest
+
+  # ── Deploy Gate ─────────────────────────────────────────────────────────────
+  # Design Rationale:
+  # In accordance with SeatLock's cost and architecture design ($0 local-first demo on
+  # Minikube, one-time cloud proof on Oracle Cloud Free Tier + K3s), deployment is NOT
+  # an always-on continuous push that assumes an active 24/7 paid cluster.
+  # Instead, this deploy job acts as a gated, manually-triggered (workflow_dispatch)
+  # step that applies K8s manifests using kubectl only after all backend, frontend,
+  # and containerization validation jobs have succeeded.
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [backend-ci, frontend-ci, docker-build-push]
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+      - name: Deploy to Kubernetes Cluster
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG }}
+        run: |
+          if [ -z "$KUBECONFIG_DATA" ]; then
+            echo "⚠️ No KUBECONFIG secret provided. Simulated dry-run deploy validation:"
+            kubectl apply -k ./k8s --dry-run=client
+            echo "✅ Kubernetes manifests passed client-side validation."
+          else
+            mkdir -p ~/.kube
+            echo "$KUBECONFIG_DATA" | base64 -d > ~/.kube/config
+            kubectl apply -k ./k8s
+            kubectl rollout status deployment/seatlock-backend --timeout=180s
+            echo "✅ Successfully deployed to target cluster."
+          fi

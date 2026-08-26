@@ -56,10 +56,6 @@ elif command -v open > /dev/null; then
     open "http://localhost:3000" &
 fi
 
-echo ""
-echo "👉 Run the 500-VU Concurrency Load Test now:"
-echo "   k6 run k6/concurrency-test.js"
-echo ""
-echo "👉 Verify Zero-Overselling invariant in Postgres:"
-echo "   kubectl exec -i deploy/seatlock-db -- psql -U seatlock -d seatlock < scripts/verify-zero-overselling.sql"
+echo "👉 Run the Automated Concurrency Load Test & DB Invariant Verification:"
+echo "   ./scripts/run-load-test-and-verify.sh"
 echo "========================================================"

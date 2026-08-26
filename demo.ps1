@@ -49,10 +49,6 @@ Write-Host "🌐 Opening 2 Browser Tabs to demonstrate live cross-pod WebSocket 
 Start-Process "http://localhost:3000"
 Start-Process "http://localhost:3000"
 
-Write-Host ""
-Write-Host "👉 Run the 500-VU Concurrency Load Test now:" -ForegroundColor Yellow
-Write-Host "   k6 run k6/concurrency-test.js" -ForegroundColor White
-Write-Host ""
-Write-Host "👉 Verify Zero-Overselling invariant in Postgres:" -ForegroundColor Yellow
-Write-Host "   kubectl exec -i (kubectl get pod -l app=seatlock-db -o jsonpath='{.items[0].metadata.name}') -- psql -U seatlock -d seatlock < scripts/verify-zero-overselling.sql" -ForegroundColor White
+Write-Host "👉 Run the Automated Concurrency Load Test & DB Invariant Verification:" -ForegroundColor Yellow
+Write-Host "   .\scripts\run-load-test-and-verify.ps1" -ForegroundColor White
 Write-Host "========================================================" -ForegroundColor Cyan

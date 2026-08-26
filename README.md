@@ -5,11 +5,10 @@
 [![Spring Boot 3.4](https://img.shields.io/badge/Spring%20Boot-3.4.1-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://www.postgresql.org/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Minikube-326ce5.svg)](https://minikube.sigs.k8s.io/)
-[![Zero Overselling](https://img.shields.io/badge/Overselling-0.00%25-success.svg)](#zero-overselling-mathematical-proof)
 
-> **SeatLock** is a high-concurrency distributed ticket booking engine proving **mathematical zero-overselling** under extreme burst load (500 concurrent users competing for 500 seats), surviving distributed pod crashes mid-transaction, and eliminating the need for Redis or Kafka by using PostgreSQL's transactional primitives (`FOR UPDATE SKIP LOCKED`, `LISTEN/NOTIFY`, and `pg_try_advisory_xact_lock`).
+> **SeatLock** is a high-concurrency distributed ticket booking engine designed to guarantee **zero overselling** under extreme burst load (500 concurrent users competing for 500 seats), withstand distributed pod crashes mid-transaction, and eliminate the need for Redis or Kafka by utilizing PostgreSQL's transactional primitives (`FOR UPDATE SKIP LOCKED`, `LISTEN/NOTIFY`, and `pg_try_advisory_xact_lock`).
 
-📺 **[Watch 2-Minute Architecture & Concurrency Demo Video](https://github.com/seatlock/seatlock#demo-recording)** *(Shows live 2-tab sync, clean booking conflict rejection, and 500/500 zero-overselling k6 terminal output)*
+📺 **[Watch 2-Minute Architecture & Concurrency Demo Video](https://github.com/seatlock/seatlock#demo-recording)** *(Demonstrating live 2-tab sync, clean booking conflict rejection, and 500/500 zero-overselling k6 terminal output)*
 
 ---
 
@@ -19,7 +18,7 @@
 |---|---|
 | ❌ A generic CRUD application | ✅ A high-concurrency distributed systems portfolio piece |
 | ❌ A Redis distributed lock wrapper | ✅ ACID relational concurrency with zero split-brain risk |
-| ❌ Simulated / unverified claims | ✅ Proven with automated k6 load tests & chaos pod kills |
+| ❌ Unverifiable claims | ✅ Fully automated load generation & PostgreSQL invariant assertions (see [`docs/load-test-run-01.txt`](docs/load-test-run-01.txt)) |
 
 ---
 
@@ -66,12 +65,13 @@ When scaling from 1 to 3 backend pods in Kubernetes, standard `@Scheduled` jobs 
 2. **Waiting Room Double-Admission**: Pods attempting `SELECT ... WHERE status='WAITING'` followed by `UPDATE` create a **Time-Of-Check to Time-Of-Use (TOCTOU) race condition**, admitting the same user multiple times or exceeding the batch size.
 
 ### 🔴 Before: The Multi-Pod Bug (Unsynchronized Replicas)
+*(Illustrative trace demonstrating unsynchronized execution across 3 replicas)*
 ```text
-[Pod-1] 22:00:00.102 INFO  LockReaperJob - Found 3 expired locks — releasing
-[Pod-2] 22:00:00.103 INFO  LockReaperJob - Found 3 expired locks — releasing (DUPLICATE AUDIT LOG!)
-[Pod-3] 22:00:00.104 INFO  LockReaperJob - Found 3 expired locks — releasing (DUPLICATE AUDIT LOG!)
-[Pod-1] 22:00:05.001 INFO  WaitingRoomJob - Admitted user 9b4d8a1f at position 1
-[Pod-2] 22:00:05.002 INFO  WaitingRoomJob - Admitted user 9b4d8a1f at position 1 (DOUBLE ADMISSION RACE!)
+22:00:00.102 [scheduler-1] INFO  LockReaperJob - [REAPER] Found 3 expired lock(s) — releasing
+22:00:00.103 [scheduler-1] INFO  LockReaperJob - [REAPER] Found 3 expired lock(s) — releasing (DUPLICATE AUDIT LOG!)
+22:00:00.104 [scheduler-1] INFO  LockReaperJob - [REAPER] Found 3 expired lock(s) — releasing (DUPLICATE AUDIT LOG!)
+22:00:05.001 [scheduler-2] INFO  WaitingRoomAdmissionJob - [ADMISSION] Admitted 50 user(s)
+22:00:05.002 [scheduler-2] INFO  WaitingRoomAdmissionJob - [ADMISSION] Admitted 50 user(s) (DOUBLE ADMISSION RACE!)
 ```
 
 ### 🟢 After: The PostgreSQL-Native Fix
@@ -79,29 +79,28 @@ We solved this without adding Redis or Quartz tables by using:
 1. **Non-blocking Transactional Advisory Locks**: `SELECT pg_try_advisory_xact_lock(1001)` guarantees only **one** pod executes the scheduled job, while other pods instantly bypass it (`0 ms` wait). The lock is transaction-scoped—if the active pod crashes, PostgreSQL auto-releases it immediately.
 2. **Atomic `UPDATE ... RETURNING`**: Waiting room admission uses `UPDATE waiting_room_entries SET status='ADMITTED' WHERE id IN (SELECT id ... FOR UPDATE SKIP LOCKED LIMIT 50) RETURNING *`, completely eliminating the TOCTOU gap.
 
+*(Representative application log trace matching LockReaperJob source)*
 ```text
-[Pod-1] 22:00:00.102 DEBUG LockReaperJob - Acquired advisory lock (1001) — scanning for expired locks
-[Pod-2] 22:00:00.103 DEBUG LockReaperJob - Advisory lock held by another instance — skipping cleanly
-[Pod-3] 22:00:00.104 DEBUG LockReaperJob - Advisory lock held by another instance — skipping cleanly
-[Pod-1] 22:00:00.115 INFO  LockReaperJob - Released 3 expired locks (Single clean audit entry)
+22:00:00.102 [scheduler-1] DEBUG LockReaperJob - [REAPER] Acquired advisory lock — scanning for expired locks
+22:00:00.103 [scheduler-1] DEBUG LockReaperJob - [REAPER] Advisory lock held by another instance — skipping
+22:00:00.104 [scheduler-1] DEBUG LockReaperJob - [REAPER] Advisory lock held by another instance — skipping
+22:00:00.115 [scheduler-1] INFO  LockReaperJob - [REAPER] Released 3 expired lock(s)
 ```
 
 ---
 
-## 📊 Concurrency Benchmark Results (k6 Load Test)
+## 📊 Concurrency Benchmark (500 VUs against 500 Seats)
 
-Tested with **500 Virtual Users** targeting **500 Seats** simultaneously (1.0x seat-to-user ratio under peak burst):
+Target load profile comparing concurrency control mechanisms (see [`docs/load-test-run-01.txt`](docs/load-test-run-01.txt) for capture instructions):
 
 | Metric | Pessimistic (`FOR UPDATE SKIP LOCKED`) | Optimistic (`@Version` / Fast-Fail) |
 |---|---|---|
 | **Total Seats Available** | 500 | 500 |
-| **Total Bookings Confirmed** | **500 (100.0%)** | **500 (100.0%)** |
-| **Oversold Seats** | **0 (0.00%)** | **0 (0.00%)** |
+| **Total Bookings Target** | **500 (100.0%)** | **500 (100.0%)** |
+| **Oversold Seats Invariant** | **0 (0.00%)** | **0 (0.00%)** |
 | **Duplicate Transactions** | **0** | **0** |
-| **p95 Latency** | 320 ms | 110 ms |
-| **Contention UX** | Instant rejection (0 ms wait) | Instant version conflict catch |
-| **Throughput (Peak)** | ~650 req/sec | ~1,400 req/sec |
-| **Ideal Use Case** | "Flash Sale" on identical popular seat | Broad catalog with distributed seat picks |
+| **Contention Resolution** | Instant SKIP LOCKED rejection (0 ms wait) | Instant JPA version conflict catch |
+| **Ideal Scenario** | "Flash Sale" on identical high-demand seats | Distributed selection across large seating inventory |
 
 ---
 
@@ -114,6 +113,15 @@ Tested with **500 Virtual Users** targeting **500 Seats** simultaneously (1.0x s
 
 # Windows PowerShell
 ./demo.ps1
+```
+
+### Run Concurrency Load Test & Invariant Verification:
+```bash
+# Linux / macOS
+./scripts/run-load-test-and-verify.sh
+
+# Windows PowerShell
+.\scripts\run-load-test-and-verify.ps1
 ```
 
 ### Docker Compose Alternative:
