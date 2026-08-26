@@ -1,6 +1,6 @@
 # ==============================================================================
 # SeatLock — 1-Command Live Interview Demo Script (PowerShell for Windows)
-# Starts Minikube (4 CPUs, 6GB RAM) -> Deploys Postgres & 3 Replicas -> Opens UI
+# Starts Minikube -> Deploys Postgres & 3 Replicas -> Opens UI
 # ==============================================================================
 $ErrorActionPreference = "Stop"
 
@@ -18,11 +18,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "Docker Desktop is running." -ForegroundColor Green
 
-# Step 1: Check and Start Minikube with laptop constraints
+# Step 1: Check and Start Minikube (tuned for Docker Desktop 2 CPUs, 4GB RAM)
 $status = minikube status 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "Starting Minikube: 4 CPUs, 6GB RAM..." -ForegroundColor Yellow
-    minikube start --cpus=4 --memory=6g --driver=docker
+    Write-Host "Starting Minikube (2 CPUs, 4GB RAM)..." -ForegroundColor Yellow
+    minikube start --cpus=2 --memory=4g --driver=docker
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: Minikube failed to start." -ForegroundColor Red
         exit 1

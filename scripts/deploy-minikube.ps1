@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
-Write-Host "Starting Minikube (4 CPUs, 6GB RAM)..."
-minikube start --cpus=4 --memory=6g --driver=docker
+Write-Host "Starting Minikube (2 CPUs, 4GB RAM)..."
+minikube start --cpus=2 --memory=4g --driver=docker
 
 Write-Host "Configuring Docker environment..."
 & minikube -p minikube docker-env --shell powershell | Invoke-Expression
