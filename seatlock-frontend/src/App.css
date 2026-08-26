@@ -1,0 +1,92 @@
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  background: #1e293b;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  border-bottom: 1px solid #334155;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #f1f5f9;
+}
+
+.header-status {
+  margin-left: auto;
+}
+
+.ws-indicator {
+  font-size: 0.85rem;
+  padding: 4px 12px;
+  border-radius: 12px;
+}
+
+.ws-indicator.connected {
+  color: #22c55e;
+  background: #14532d;
+}
+
+.ws-indicator.disconnected {
+  color: #ef4444;
+  background: #450a0a;
+}
+
+.app-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.app-tabs button {
+  background: transparent;
+  border: 1px solid #475569;
+  color: #94a3b8;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.app-tabs button.active,
+.app-tabs button:hover {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+}
+
+.app-main {
+  flex: 1;
+  padding: 24px;
+}
+
+.booking-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.seat-map-panel {
+  min-width: 0;
+}
+
+.booking-panel {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+}
+
+@media (max-width: 900px) {
+  .booking-layout {
+    grid-template-columns: 1fr;
+  }
+}

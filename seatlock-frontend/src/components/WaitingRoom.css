@@ -1,0 +1,86 @@
+.waiting-room {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+  grid-column: 1 / -1;
+}
+
+.queue-card {
+  background: #1e293b;
+  border-radius: 16px;
+  padding: 48px;
+  text-align: center;
+  max-width: 400px;
+  width: 100%;
+  border: 1px solid #334155;
+}
+
+.queue-icon, .admitted-icon {
+  font-size: 3rem;
+  margin-bottom: 16px;
+}
+
+.queue-card h2 {
+  margin: 0 0 24px;
+  color: #f1f5f9;
+}
+
+.position-display {
+  margin: 24px 0;
+}
+
+.position-number {
+  font-size: 4rem;
+  font-weight: 800;
+  color: #3b82f6;
+  line-height: 1;
+}
+
+.position-label {
+  color: #64748b;
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+.eta {
+  color: #f59e0b;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 16px 0;
+}
+
+.queue-bar {
+  background: #334155;
+  border-radius: 8px;
+  height: 8px;
+  overflow: hidden;
+  margin: 16px 0;
+}
+
+.queue-bar-fill {
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  height: 100%;
+  border-radius: 8px;
+  transition: width 0.5s ease;
+}
+
+.queue-note {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin: 16px 0 0;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #334155;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

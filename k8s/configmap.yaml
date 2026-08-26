@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seatlock-config
+data:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/seatlock
+  SEATLOCK_LOCKING_STRATEGY: PESSIMISTIC
+  SEATLOCK_LOCK_TTL_MINUTES: "5"
+  SEATLOCK_REAPER_INTERVAL_MS: "30000"

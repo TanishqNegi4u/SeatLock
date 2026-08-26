@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:tc:postgresql:16-alpine:///seatlock  # Testcontainers JDBC URL
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+  flyway:
+    enabled: true
+
+seatlock:
+  locking-strategy: PESSIMISTIC
+  lock-ttl-minutes: 1             # Shorter TTL for tests
+  reaper-interval-ms: 5000
+  waiting-room:
+    admission-batch-size: 10
+    admission-interval-ms: 2000
+  payment:
+    failure-rate: 0.0              # Deterministic in tests by default
+    simulated-delay-ms: 0
