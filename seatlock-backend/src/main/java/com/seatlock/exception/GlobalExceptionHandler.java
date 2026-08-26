@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.Map;
@@ -33,6 +34,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UserNotAdmittedException.class)
     public ResponseEntity<Map<String, Object>> handleNotAdmitted(UserNotAdmittedException ex) {
         return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNoResourceFound(NoResourceFoundException ex) {
+        return buildResponse(HttpStatus.NOT_FOUND, "Resource not found: " + ex.getResourcePath());
     }
 
     @ExceptionHandler(Exception.class)
