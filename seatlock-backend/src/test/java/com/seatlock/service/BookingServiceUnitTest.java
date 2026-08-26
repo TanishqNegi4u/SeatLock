@@ -1,7 +1,6 @@
 package com.seatlock.service;
 
 import com.seatlock.domain.Booking;
-import com.seatlock.domain.BookingRequest;
 import com.seatlock.domain.BookingStatus;
 import com.seatlock.domain.Seat;
 import com.seatlock.domain.SeatStatus;
@@ -19,7 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -57,6 +56,9 @@ public class BookingServiceUnitTest {
     @Mock
     private SeatWebSocketHandler webSocketHandler;
 
+    @Mock
+    private JdbcTemplate jdbcTemplate;
+
     @InjectMocks
     private BookingService bookingService;
 
@@ -73,8 +75,8 @@ public class BookingServiceUnitTest {
 
     @Test
     void testSuccessfulBookingFlow() {
-        when(bookingRequestRepository.saveAndFlush(any(BookingRequest.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
+        when(jdbcTemplate.update(anyString(), eq(idempotencyKey), eq(seatId), eq(eventId), eq(userId)))
+                .thenReturn(1);
         when(paymentService.processPayment(eq(userId), eq(seatId), anyString())).thenReturn(true);
 
         Seat bookedSeat = Seat.builder()
@@ -111,8 +113,8 @@ public class BookingServiceUnitTest {
 
     @Test
     void testPaymentFailureCompensation() {
-        when(bookingRequestRepository.saveAndFlush(any(BookingRequest.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
+        when(jdbcTemplate.update(anyString(), eq(idempotencyKey), eq(seatId), eq(eventId), eq(userId)))
+                .thenReturn(1);
         when(paymentService.processPayment(eq(userId), eq(seatId), anyString())).thenReturn(false);
         when(seatRepository.findById(seatId)).thenReturn(Optional.of(Seat.builder().id(seatId).eventId(eventId).status(SeatStatus.AVAILABLE).build()));
 
@@ -126,8 +128,8 @@ public class BookingServiceUnitTest {
 
     @Test
     void testIdempotencyDuplicateRequest() {
-        when(bookingRequestRepository.saveAndFlush(any(BookingRequest.class)))
-                .thenThrow(new DataIntegrityViolationException("duplicate key"));
+        when(jdbcTemplate.update(anyString(), eq(idempotencyKey), eq(seatId), eq(eventId), eq(userId)))
+                .thenReturn(0); // 0 rows updated -> conflict detected
 
         Booking existingBooking = Booking.builder()
                 .id(501L)
@@ -149,8 +151,8 @@ public class BookingServiceUnitTest {
 
     @Test
     void testLockExpirationDuringPayment() {
-        when(bookingRequestRepository.saveAndFlush(any(BookingRequest.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
+        when(jdbcTemplate.update(anyString(), eq(idempotencyKey), eq(seatId), eq(eventId), eq(userId)))
+                .thenReturn(1);
         when(paymentService.processPayment(eq(userId), eq(seatId), anyString())).thenReturn(true);
         when(lockingStrategy.confirmBooking(seatId, userId)).thenThrow(new BookingConflictException("Lock expired"));
 

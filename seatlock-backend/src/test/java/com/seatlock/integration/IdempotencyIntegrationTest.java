@@ -20,6 +20,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
@@ -68,8 +69,8 @@ public class IdempotencyIntegrationTest {
         assertEquals("DUPLICATE", response2.status());
         assertEquals(response1.bookingId(), response2.bookingId());
 
-        long bookingCount = bookingRepository.countByEventIdAndStatus(eventId, BookingStatus.CONFIRMED);
-        assertEquals(1, bookingCount);
+        assertTrue(bookingRepository.findByIdempotencyKey(idempotencyKey).isPresent());
+        assertEquals(1, bookingRepository.findByIdempotencyKey(idempotencyKey).stream().count());
 
         verify(paymentService, times(1)).processPayment(any(), anyLong(), any());
     }

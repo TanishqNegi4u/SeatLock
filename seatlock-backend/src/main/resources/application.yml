@@ -29,21 +29,45 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: always
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      paymentService:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50.0
+        waitDurationInOpenState: 5000ms
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+  retry:
+    instances:
+      paymentService:
+        maxAttempts: 3
+        waitDuration: 100ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
 
 seatlock:
   locking-strategy: PESSIMISTIC   # PESSIMISTIC or OPTIMISTIC
   lock-ttl-minutes: 5             # Seat lock TTL before reaper releases
   reaper-interval-ms: 30000       # How often the reaper runs
+  rate-limit:
+    capacity: 10
+    refill-tokens: 10
+    refill-duration-seconds: 10
   waiting-room:
     admission-batch-size: 50      # Users admitted per batch
     admission-interval-ms: 5000   # How often the admission job runs
   payment:
     failure-rate: 0.20             # 20% mock payment failure rate
     simulated-delay-ms: 500       # Mock processing delay
+    intermittent-failure-rate: 0.0 # Gateway network error simulation rate
   chaos:
     payment-delay-ms: 0           # Set to 10000 in chaos test profile
   websocket:

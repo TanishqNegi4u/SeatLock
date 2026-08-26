@@ -45,48 +45,53 @@ public class LockReaperJob {
     @Scheduled(fixedDelayString = "${seatlock.reaper-interval-ms:30000}")
     @Transactional
     public void reapExpiredLocks() {
-        Boolean acquired = jdbcTemplate.queryForObject(
-                "SELECT pg_try_advisory_xact_lock(?)", Boolean.class, REAPER_ADVISORY_LOCK_ID);
+        org.slf4j.MDC.put("traceId", "reaper-" + java.util.UUID.randomUUID().toString().substring(0, 8));
+        try {
+            Boolean acquired = jdbcTemplate.queryForObject(
+                    "SELECT pg_try_advisory_xact_lock(?)", Boolean.class, REAPER_ADVISORY_LOCK_ID);
 
-        if (Boolean.FALSE.equals(acquired)) {
-            log.debug("[REAPER] Advisory lock held by another instance — skipping");
-            return;
+            if (Boolean.FALSE.equals(acquired)) {
+                log.debug("[REAPER] Advisory lock held by another instance — skipping");
+                return;
+            }
+
+            log.debug("[REAPER] Acquired advisory lock — scanning for expired locks");
+
+            Instant cutoff = Instant.now().minus(lockTtlMinutes, ChronoUnit.MINUTES);
+            List<Seat> expired = seatRepository.findExpiredLocks(cutoff);
+
+            if (expired.isEmpty()) {
+                log.debug("[REAPER] No expired locks found");
+                return;
+            }
+
+            log.info("[REAPER] Found {} expired lock(s) — releasing", expired.size());
+
+            for (Seat seat : expired) {
+                String label = seat.getLabel();
+                String lockedByShort = seat.getLockedBy() != null
+                        ? seat.getLockedBy().toString().substring(0, 8) : "unknown";
+
+                seat.setStatus(SeatStatus.AVAILABLE);
+                seat.setLockedBy(null);
+                seat.setLockedAt(null);
+                seatRepository.save(seat);
+
+                auditService.logSeatEvent(
+                        seat.getId(), seat.getEventId(),
+                        SeatStatus.LOCKED.name(), SeatStatus.AVAILABLE.name(),
+                        null, ActorType.REAPER,
+                        "Lock expired (TTL=" + lockTtlMinutes + "min, was locked by " + lockedByShort + ")");
+
+                // Notify all pods: seat is back to AVAILABLE
+                webSocketHandler.notifySeatUpdate(seat);
+
+                log.info("[REAPER] Released seat {} (was locked by user {})", label, lockedByShort);
+            }
+
+            log.info("[REAPER] Released {} expired lock(s)", expired.size());
+        } finally {
+            org.slf4j.MDC.remove("traceId");
         }
-
-        log.debug("[REAPER] Acquired advisory lock — scanning for expired locks");
-
-        Instant cutoff = Instant.now().minus(lockTtlMinutes, ChronoUnit.MINUTES);
-        List<Seat> expired = seatRepository.findExpiredLocks(cutoff);
-
-        if (expired.isEmpty()) {
-            log.debug("[REAPER] No expired locks found");
-            return;
-        }
-
-        log.info("[REAPER] Found {} expired lock(s) — releasing", expired.size());
-
-        for (Seat seat : expired) {
-            String label = seat.getLabel();
-            String lockedByShort = seat.getLockedBy() != null
-                    ? seat.getLockedBy().toString().substring(0, 8) : "unknown";
-
-            seat.setStatus(SeatStatus.AVAILABLE);
-            seat.setLockedBy(null);
-            seat.setLockedAt(null);
-            seatRepository.save(seat);
-
-            auditService.logSeatEvent(
-                    seat.getId(), seat.getEventId(),
-                    SeatStatus.LOCKED.name(), SeatStatus.AVAILABLE.name(),
-                    null, ActorType.REAPER,
-                    "Lock expired (TTL=" + lockTtlMinutes + "min, was locked by " + lockedByShort + ")");
-
-            // Notify all pods: seat is back to AVAILABLE
-            webSocketHandler.notifySeatUpdate(seat);
-
-            log.info("[REAPER] Released seat {} (was locked by user {})", label, lockedByShort);
-        }
-
-        log.info("[REAPER] Released {} expired lock(s)", expired.size());
     }
 }

@@ -44,52 +44,57 @@ public class WaitingRoomAdmissionJob {
     @Scheduled(fixedDelayString = "${seatlock.waiting-room.admission-interval-ms:5000}")
     @Transactional
     public void admitNextBatch() {
-        // ── Gate: only one pod runs at a time ─────────────────────────
-        Boolean acquired = jdbcTemplate.queryForObject(
-                "SELECT pg_try_advisory_xact_lock(?)",
-                Boolean.class,
-                ADMISSION_ADVISORY_LOCK_ID);
+        org.slf4j.MDC.put("traceId", "admission-" + java.util.UUID.randomUUID().toString().substring(0, 8));
+        try {
+            // ── Gate: only one pod runs at a time ─────────────────────────
+            Boolean acquired = jdbcTemplate.queryForObject(
+                    "SELECT pg_try_advisory_xact_lock(?)",
+                    Boolean.class,
+                    ADMISSION_ADVISORY_LOCK_ID);
 
-        if (Boolean.FALSE.equals(acquired)) {
-            log.debug("[ADMISSION] Advisory lock held by another instance — skipping");
-            return;
-        }
+            if (Boolean.FALSE.equals(acquired)) {
+                log.debug("[ADMISSION] Advisory lock held by another instance — skipping");
+                return;
+            }
 
-        // ── Atomic UPDATE...RETURNING ─────────────────────────────────
-        // Admits the next batch of WAITING users, ordered by position.
-        // FOR UPDATE SKIP LOCKED prevents double-admission if advisory lock fails.
-        List<Map<String, Object>> admitted = jdbcTemplate.queryForList("""
-                UPDATE waiting_room_entries
-                SET status = 'ADMITTED', admitted_at = now()
-                WHERE id IN (
-                    SELECT id FROM waiting_room_entries
-                    WHERE status = 'WAITING'
-                    ORDER BY position
-                    LIMIT ?
-                    FOR UPDATE SKIP LOCKED
-                )
-                RETURNING id, event_id, user_id::text, position
-                """, batchSize);
+            // ── Atomic UPDATE...RETURNING ─────────────────────────────────
+            // Admits the next batch of WAITING users, ordered by position.
+            // FOR UPDATE SKIP LOCKED prevents double-admission if advisory lock fails.
+            List<Map<String, Object>> admitted = jdbcTemplate.queryForList("""
+                    UPDATE waiting_room_entries
+                    SET status = 'ADMITTED', admitted_at = now()
+                    WHERE id IN (
+                        SELECT id FROM waiting_room_entries
+                        WHERE status = 'WAITING'
+                        ORDER BY position
+                        LIMIT ?
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    RETURNING id, event_id, user_id::text, position
+                    """, batchSize);
 
-        if (admitted.isEmpty()) {
-            log.debug("[ADMISSION] No users waiting for admission");
-            return;
-        }
+            if (admitted.isEmpty()) {
+                log.debug("[ADMISSION] No users waiting for admission");
+                return;
+            }
 
-        log.info("[ADMISSION] Admitted {} user(s)", admitted.size());
+            log.info("[ADMISSION] Admitted {} user(s)", admitted.size());
 
-        // ── Notify each admitted user via pg_notify ───────────────────
-        for (Map<String, Object> row : admitted) {
-            Long eventId = ((Number) row.get("event_id")).longValue();
-            UUID userId = UUID.fromString((String) row.get("user_id"));
-            int position = ((Number) row.get("position")).intValue();
+            // ── Notify each admitted user via pg_notify ───────────────────
+            for (Map<String, Object> row : admitted) {
+                Long eventId = ((Number) row.get("event_id")).longValue();
+                UUID userId = UUID.fromString((String) row.get("user_id"));
+                int position = ((Number) row.get("position")).intValue();
 
-            QueuePositionEvent event = new QueuePositionEvent(
-                eventId, userId, "ADMITTED", position, 0, 0);
-            webSocketHandler.notifyQueueUpdate(event);
+                QueuePositionEvent event = new QueuePositionEvent(
+                    eventId, userId, "ADMITTED", position, 0, 0);
+                webSocketHandler.notifyQueueUpdate(event);
 
-            log.info("[ADMISSION] Admitted user {} at position {} for event {}",
-                    userId.toString().substring(0, 8), position, eventId);
+                log.info("[ADMISSION] Admitted user {} at position {} for event {}",
+                        userId.toString().substring(0, 8), position, eventId);
+            }
+        } finally {
+            org.slf4j.MDC.remove("traceId");
         }
     }
 }

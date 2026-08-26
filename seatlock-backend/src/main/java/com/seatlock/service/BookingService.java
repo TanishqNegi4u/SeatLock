@@ -11,7 +11,7 @@ import com.seatlock.service.locking.LockingStrategy;
 import com.seatlock.websocket.SeatWebSocketHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +32,8 @@ public class BookingService {
     private final MetricsService metricsService;
     private final SeatWebSocketHandler webSocketHandler;
 
+    private final JdbcTemplate jdbcTemplate;
+
     public BookingService(LockingStrategy lockingStrategy,
                          BookingRepository bookingRepository,
                          BookingRequestRepository bookingRequestRepository,
@@ -39,7 +41,8 @@ public class BookingService {
                          PaymentService paymentService,
                          AuditService auditService,
                          MetricsService metricsService,
-                         SeatWebSocketHandler webSocketHandler) {
+                         SeatWebSocketHandler webSocketHandler,
+                         JdbcTemplate jdbcTemplate) {
         this.lockingStrategy = lockingStrategy;
         this.bookingRepository = bookingRepository;
         this.bookingRequestRepository = bookingRequestRepository;
@@ -48,6 +51,7 @@ public class BookingService {
         this.auditService = auditService;
         this.metricsService = metricsService;
         this.webSocketHandler = webSocketHandler;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     /**
@@ -58,17 +62,14 @@ public class BookingService {
     public BookingResponse bookSeat(Long eventId, CreateBookingRequest request, UUID userId) {
         long startTime = System.currentTimeMillis();
 
-        // ── Step 1: Idempotency gate ─────────────────────────────────────
-        try {
-            BookingRequest bookingRequest = BookingRequest.builder()
-                    .idempotencyKey(request.idempotencyKey())
-                    .seatId(request.seatId())
-                    .eventId(eventId)
-                    .userId(userId)
-                    .status(BookingRequestStatus.PENDING)
-                    .build();
-            bookingRequestRepository.saveAndFlush(bookingRequest);
-        } catch (DataIntegrityViolationException e) {
+        // ── Step 1: Idempotency gate (PostgreSQL atomic ON CONFLICT) ────
+        int rows = jdbcTemplate.update("""
+                INSERT INTO booking_requests (idempotency_key, seat_id, event_id, user_id, status, created_at)
+                VALUES (?, ?, ?, ?, 'PENDING', now())
+                ON CONFLICT (idempotency_key) DO NOTHING
+                """, request.idempotencyKey(), request.seatId(), eventId, userId);
+
+        if (rows == 0) {
             log.info("[BOOKING] Duplicate idempotency key {} — returning existing result",
                     request.idempotencyKey().toString().substring(0, 8));
             return handleDuplicateRequest(request.idempotencyKey());

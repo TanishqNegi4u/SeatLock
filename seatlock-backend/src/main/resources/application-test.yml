@@ -1,11 +1,13 @@
 spring:
   datasource:
-    url: jdbc:tc:postgresql:16-alpine:///seatlock  # Testcontainers JDBC URL
-    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+    url: jdbc:postgresql://localhost:5432/seatlock
+    username: seatlock
+    password: seatlockpassword
+    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    show-sql: false
   flyway:
     enabled: true
 
@@ -19,3 +21,4 @@ seatlock:
   payment:
     failure-rate: 0.0              # Deterministic in tests by default
     simulated-delay-ms: 0
+    intermittent-failure-rate: 0.0
