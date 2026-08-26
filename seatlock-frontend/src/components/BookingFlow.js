@@ -1,11 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import { bookSeat, releaseSeat } from '../api/seatlockApi';
+import { useToast } from './Toast';
 import './BookingFlow.css';
 
 function BookingFlow({ selectedSeat, eventId, onBookingComplete }) {
   const [phase, setPhase] = useState('idle'); // idle | confirming | processing | success | failed
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const toast = useToast();
 
   const handleConfirm = useCallback(async () => {
     if (!selectedSeat) return;
@@ -19,26 +21,33 @@ function BookingFlow({ selectedSeat, eventId, onBookingComplete }) {
       if (res.status === 'CONFIRMED' || res.status === 'DUPLICATE') {
         setPhase('success');
         setResult(res);
+        toast.success(`Booking confirmed for ${res.seatLabel || selectedSeat.label}!`);
       } else {
         setPhase('failed');
         setError(res.message || 'Booking failed');
+        toast.error(res.message || 'Booking failed');
       }
     } catch (e) {
       setPhase('failed');
-      setError(e.message || 'Booking failed');
+      const msg = e.status === 429
+        ? 'Rate limit exceeded. Please wait 10 seconds before booking.'
+        : (e.message || 'Booking failed');
+      setError(msg);
+      toast.error(msg);
     }
-  }, [selectedSeat, eventId]);
+  }, [selectedSeat, eventId, toast]);
 
   const handleCancel = useCallback(async () => {
     if (!selectedSeat) return;
     try {
       await releaseSeat(eventId, selectedSeat.id);
+      toast.info(`Seat ${selectedSeat.label} released.`);
     } catch (e) { /* ignore */ }
     onBookingComplete();
     setPhase('idle');
     setResult(null);
     setError(null);
-  }, [selectedSeat, eventId, onBookingComplete]);
+  }, [selectedSeat, eventId, onBookingComplete, toast]);
 
   const handleDone = useCallback(() => {
     onBookingComplete();

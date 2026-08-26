@@ -9,6 +9,7 @@ export function useWebSocket(eventId) {
   const [connected, setConnected] = useState(false);
   const [seatUpdates, setSeatUpdates] = useState([]);
   const [queueUpdates, setQueueUpdates] = useState([]);
+  const [auditUpdates, setAuditUpdates] = useState([]);
 
   useEffect(() => {
     if (!eventId) return;
@@ -19,9 +20,17 @@ export function useWebSocket(eventId) {
       debug: () => {}, // silence debug logs
       onConnect: () => {
         setConnected(true);
+
+        // Seat inventory updates
         client.subscribe(`/topic/event/${eventId}/seats`, (msg) => {
           const update = JSON.parse(msg.body);
           setSeatUpdates(prev => [...prev.slice(-99), update]);
+        });
+
+        // Real-time admin audit stream
+        client.subscribe(`/topic/event/${eventId}/audit-log`, (msg) => {
+          const audit = JSON.parse(msg.body);
+          setAuditUpdates(prev => [audit, ...prev.slice(0, 99)]);
         });
       },
       onDisconnect: () => setConnected(false),
@@ -50,5 +59,5 @@ export function useWebSocket(eventId) {
     return last;
   }, [seatUpdates]);
 
-  return { connected, seatUpdates, queueUpdates, subscribeToQueue, consumeLastSeatUpdate };
+  return { connected, seatUpdates, queueUpdates, auditUpdates, subscribeToQueue, consumeLastSeatUpdate };
 }

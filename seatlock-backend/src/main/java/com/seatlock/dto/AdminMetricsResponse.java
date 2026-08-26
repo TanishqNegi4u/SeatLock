@@ -13,5 +13,6 @@ public record AdminMetricsResponse(
     long admittedFromQueue,
     long lockContentionCount,
     double avgBookingLatencyMs,
+    String podHostname,
     Instant timestamp
 ) {}

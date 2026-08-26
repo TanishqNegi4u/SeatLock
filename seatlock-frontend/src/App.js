@@ -1,31 +1,38 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useWebSocket } from './hooks/useWebSocket';
 import { getSeatMap, joinQueue, getQueueStatus } from './api/seatlockApi';
 import SeatMap from './components/SeatMap';
 import WaitingRoom from './components/WaitingRoom';
 import BookingFlow from './components/BookingFlow';
 import AdminDashboard from './components/AdminDashboard';
+import { ToastProvider } from './components/Toast';
 import './App.css';
 
-const EVENT_ID = 1;
+function MainLayout() {
+  const { eventId: paramEventId } = useParams();
+  const eventId = Number(paramEventId) || 1;
+  const navigate = useNavigate();
+  const location = useLocation();
 
-function App() {
-  const [tab, setTab] = useState('book');
+  const isAdmin = location.pathname.endsWith('/admin');
+
   const [seatMap, setSeatMap] = useState(null);
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [queueStatus, setQueueStatus] = useState(null);
   const [userId, setUserId] = useState(null);
-  const { connected, seatUpdates, queueUpdates, subscribeToQueue } = useWebSocket(EVENT_ID);
 
-  // Load seat map on mount
+  const { connected, seatUpdates, queueUpdates, auditUpdates, subscribeToQueue } = useWebSocket(eventId);
+
+  // Load seat map on mount / event change
   const refreshSeatMap = useCallback(async () => {
     try {
-      const data = await getSeatMap(EVENT_ID);
+      const data = await getSeatMap(eventId);
       setSeatMap(data);
     } catch (e) {
       console.error('Failed to load seat map:', e);
     }
-  }, []);
+  }, [eventId]);
 
   useEffect(() => { refreshSeatMap(); }, [refreshSeatMap]);
 
@@ -68,14 +75,13 @@ function App() {
 
   // Join queue on mount
   useEffect(() => {
-    joinQueue(EVENT_ID)
+    joinQueue(eventId)
       .then(data => {
         setQueueStatus(data);
-        // Extract userId from response
         if (data.userId) setUserId(data.userId);
       })
       .catch(e => console.error('Failed to join queue:', e));
-  }, []);
+  }, [eventId]);
 
   // Subscribe to queue updates once userId is known
   useEffect(() => {
@@ -101,36 +107,46 @@ function App() {
     if (!queueStatus || queueStatus.status === 'ADMITTED') return;
     const interval = setInterval(async () => {
       try {
-        const data = await getQueueStatus(EVENT_ID);
+        const data = await getQueueStatus(eventId);
         setQueueStatus(data);
       } catch (e) { /* ignore */ }
     }, 3000);
     return () => clearInterval(interval);
-  }, [queueStatus]);
+  }, [eventId, queueStatus]);
 
   const isAdmitted = queueStatus?.status === 'ADMITTED';
 
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🔒 SeatLock</h1>
+        <h1 onClick={() => navigate(`/event/${eventId}`)} style={{ cursor: 'pointer' }}>
+          🔒 SeatLock
+        </h1>
         <div className="header-status">
           <span className={`ws-indicator ${connected ? 'connected' : 'disconnected'}`}>
             {connected ? '● Live' : '○ Offline'}
           </span>
         </div>
-        <nav className="app-tabs">
-          <button className={tab === 'book' ? 'active' : ''} onClick={() => setTab('book')}>
+        <nav className="app-tabs" aria-label="Main Navigation">
+          <button
+            className={!isAdmin ? 'active' : ''}
+            onClick={() => navigate(`/event/${eventId}`)}
+          >
             🎫 Book Tickets
           </button>
-          <button className={tab === 'admin' ? 'active' : ''} onClick={() => setTab('admin')}>
+          <button
+            className={isAdmin ? 'active' : ''}
+            onClick={() => navigate(`/event/${eventId}/admin`)}
+          >
             📊 Admin
           </button>
         </nav>
       </header>
 
       <main className="app-main">
-        {tab === 'book' && (
+        {isAdmin ? (
+          <AdminDashboard eventId={eventId} auditUpdates={auditUpdates} />
+        ) : (
           <div className="booking-layout">
             {!isAdmitted ? (
               <WaitingRoom queueStatus={queueStatus} />
@@ -142,14 +158,14 @@ function App() {
                     selectedSeat={selectedSeat}
                     onSelectSeat={setSelectedSeat}
                     userId={userId}
-                    eventId={EVENT_ID}
+                    eventId={eventId}
                     onSeatLocked={refreshSeatMap}
                   />
                 </div>
                 <div className="booking-panel">
                   <BookingFlow
                     selectedSeat={selectedSeat}
-                    eventId={EVENT_ID}
+                    eventId={eventId}
                     onBookingComplete={() => {
                       setSelectedSeat(null);
                       refreshSeatMap();
@@ -160,9 +176,23 @@ function App() {
             )}
           </div>
         )}
-        {tab === 'admin' && <AdminDashboard eventId={EVENT_ID} />}
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <ToastProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Navigate to="/event/1" replace />} />
+          <Route path="/admin" element={<Navigate to="/event/1/admin" replace />} />
+          <Route path="/event/:eventId" element={<MainLayout />} />
+          <Route path="/event/:eventId/admin" element={<MainLayout />} />
+        </Routes>
+      </BrowserRouter>
+    </ToastProvider>
   );
 }
 

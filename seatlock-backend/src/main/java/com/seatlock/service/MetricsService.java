@@ -110,10 +110,14 @@ public class MetricsService {
                 ? (double) totalBookingLatencyMs.get() / bookingCount
                 : 0.0;
 
+        String podHostname = System.getenv("HOSTNAME") != null
+                ? System.getenv("HOSTNAME")
+                : "local-pod";
+
         return new AdminMetricsResponse(
                 eventId, totalSeats, available, locked, booked,
                 confirmedBookings, waiting, admitted,
-                contention, avgLatency, Instant.now());
+                contention, avgLatency, podHostname, Instant.now());
     }
 
     /** Increment the lock contention counter. */

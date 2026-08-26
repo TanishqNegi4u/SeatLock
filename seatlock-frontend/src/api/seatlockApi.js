@@ -35,3 +35,9 @@ export const getQueueStatus = (eventId) =>
 
 export const getMetrics = (eventId = 1) =>
   request(`/api/admin/metrics?eventId=${eventId}`);
+
+export const getAuditLog = (eventId = 1, limit = 50) =>
+  request(`/api/events/${eventId}/audit-log?limit=${limit}`);
+
+export const getMetricsHistory = (eventId = 1) =>
+  request(`/api/events/${eventId}/metrics-history`);

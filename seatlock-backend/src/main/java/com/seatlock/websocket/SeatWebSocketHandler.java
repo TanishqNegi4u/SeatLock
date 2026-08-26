@@ -57,6 +57,14 @@ public class SeatWebSocketHandler {
     }
 
     /**
+     * Send an audit event notification via Postgres NOTIFY.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void notifyAuditEvent(com.seatlock.dto.SeatEventLogDto event) {
+        pgNotify("audit_log_updates", event);
+    }
+
+    /**
      * Send a queue position notification via Postgres NOTIFY.
      */
     @Transactional(propagation = Propagation.MANDATORY)
@@ -72,6 +80,14 @@ public class SeatWebSocketHandler {
     public void broadcastSeatUpdate(Long eventId, SeatUpdateEvent event) {
         messagingTemplate.convertAndSend("/topic/event/" + eventId + "/seats", event);
         log.debug("[WS] Broadcast seat update: {} -> {}", event.label(), event.status());
+    }
+
+    /**
+     * Broadcast an audit event to subscribers of the admin audit log topic.
+     */
+    public void broadcastAuditEvent(Long eventId, com.seatlock.dto.SeatEventLogDto event) {
+        messagingTemplate.convertAndSend("/topic/event/" + eventId + "/audit-log", event);
+        log.debug("[WS] Broadcast audit event: seat={} {} -> {}", event.seatId(), event.fromStatus(), event.toStatus());
     }
 
     /**

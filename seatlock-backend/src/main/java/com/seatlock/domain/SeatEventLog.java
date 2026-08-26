@@ -36,6 +36,9 @@ public class SeatEventLog {
     @Column(length = 255)
     private String reason;
 
+    @Column(name = "pod_hostname", length = 100)
+    private String podHostname;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

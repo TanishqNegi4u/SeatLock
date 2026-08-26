@@ -94,8 +94,9 @@ public class PostgresNotificationListener implements SmartLifecycle {
         try (Statement stmt = connection.createStatement()) {
             stmt.execute("LISTEN seat_updates");
             stmt.execute("LISTEN waiting_room_updates");
+            stmt.execute("LISTEN audit_log_updates");
         }
-        log.info("[PG_LISTEN] Connected and listening on seat_updates, waiting_room_updates");
+        log.info("[PG_LISTEN] Connected and listening on seat_updates, waiting_room_updates, audit_log_updates");
 
         while (running && !connection.isClosed()) {
             // Blocking poll with timeout
@@ -122,6 +123,10 @@ public class PostgresNotificationListener implements SmartLifecycle {
                 case "waiting_room_updates" -> {
                     QueuePositionEvent event = objectMapper.readValue(payload, QueuePositionEvent.class);
                     webSocketHandler.broadcastQueueUpdate(event.eventId(), event);
+                }
+                case "audit_log_updates" -> {
+                    com.seatlock.dto.SeatEventLogDto event = objectMapper.readValue(payload, com.seatlock.dto.SeatEventLogDto.class);
+                    webSocketHandler.broadcastAuditEvent(event.eventId(), event);
                 }
                 default -> log.warn("[PG_LISTEN] Unknown channel: {}", channel);
             }
