@@ -18,11 +18,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "Docker Desktop is running." -ForegroundColor Green
 
-# Step 1: Check and Start Minikube (tuned for Docker Desktop 2 CPUs, 4GB RAM)
+# Step 1: Check and Start Minikube (tuned for Docker Desktop: 2 CPUs, 3GB RAM)
 $status = minikube status 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "Starting Minikube (2 CPUs, 4GB RAM)..." -ForegroundColor Yellow
-    minikube start --cpus=2 --memory=4g --driver=docker
+    Write-Host "Starting Minikube (2 CPUs, 3GB RAM)..." -ForegroundColor Yellow
+    minikube start --cpus=2 --memory=3072m --driver=docker
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: Minikube failed to start." -ForegroundColor Red
         exit 1

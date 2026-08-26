@@ -3,7 +3,7 @@ set -e
 
 # ==============================================================================
 # SeatLock — 1-Command Live Interview Demo Script
-# Starts Minikube (2 CPUs, 4GB RAM) -> Deploys Postgres & 3 Replicas -> Opens UI
+# Starts Minikube (2 CPUs, 3GB RAM) -> Deploys Postgres & 3 Replicas -> Opens UI
 # ==============================================================================
 
 echo "========================================================"
@@ -12,8 +12,8 @@ echo "========================================================"
 
 # Step 1: Check and Start Minikube with resource constraints
 if ! minikube status >/dev/null 2>&1; then
-    echo "⚙️ Starting Minikube (--cpus=2 --memory=4g)..."
-    minikube start --cpus=2 --memory=4g --driver=docker
+    echo "⚙️ Starting Minikube (--cpus=2 --memory=3072m)..."
+    minikube start --cpus=2 --memory=3072m --driver=docker
 else
     echo "✅ Minikube is already running."
 fi
