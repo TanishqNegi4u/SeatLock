@@ -46,17 +46,21 @@ kubectl apply -k ./k8s
 
 # Step 5: Wait for Postgres & Backend Pods to reach Ready status
 Write-Host "Waiting for PostgreSQL to be ready..." -ForegroundColor Yellow
-kubectl wait --for=condition=ready pod -l app=seatlock-db --timeout=120s
+kubectl wait --for=condition=ready pod -l app=postgres --timeout=120s
 
 Write-Host "Waiting for 3 SeatLock Backend Pods to be ready..." -ForegroundColor Yellow
-kubectl wait --for=condition=ready pod -l app=seatlock-backend --timeout=180s
+kubectl wait --for=condition=ready pod -l app=backend --timeout=180s
 
-# Step 6: Retrieve Service URL
-$minikubeIp = minikube ip
-$backendUrl = "http://" + $minikubeIp + ":30080"
+# Step 6: Start Port Forwarding in background (maps Minikube backend to localhost:8080)
+Write-Host "Forwarding backend service to localhost:8080..." -ForegroundColor Yellow
+$portForwardJob = Start-Job -ScriptBlock { kubectl port-forward svc/backend 8080:8080 }
+Start-Sleep -Seconds 2
+
 Write-Host "========================================================" -ForegroundColor Cyan
-Write-Host "SeatLock Live Cluster is READY!" -ForegroundColor Green
-Write-Host "Backend API and Actuator: $backendUrl" -ForegroundColor White
+Write-Host "SeatLock Live Cluster is READY & CONNECTED!" -ForegroundColor Green
+Write-Host "Backend API & Actuator: http://localhost:8080" -ForegroundColor White
+Write-Host "Live Seat Map:          http://localhost:8080/api/events/1/seats" -ForegroundColor White
+Write-Host "Admin Metrics:          http://localhost:8080/api/admin/metrics?eventId=1" -ForegroundColor White
 Write-Host "========================================================" -ForegroundColor Cyan
 
 # Step 7: Open 2 browser tabs for real-time WebSocket demo
