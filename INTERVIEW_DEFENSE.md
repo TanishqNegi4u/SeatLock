@@ -56,7 +56,7 @@ This document prepares you to defend every architectural and distributed systems
 
 ### Q9: How do you guarantee idempotency against network retries and double clicks?
 **Defense:**
-> "The client generates a client-side UUID `idempotency_key` prior to dispatching the request. The very first operation in the booking flow is an `INSERT INTO booking_requests (idempotency_key, seat_id, user_id, status)`. The table enforces a hard database `UNIQUE (idempotency_key)` constraint. If a duplicate request arrives (due to retry or double-click), the `INSERT` throws a `DataIntegrityViolationException`. The catch block queries for the existing booking associated with that idempotency key and returns the identical response with `status = 'DUPLICATE'`, ensuring payment is never charged twice."
+> "The client generates a client-side UUID `idempotency_key` prior to dispatching the request. The booking service executes an atomic PostgreSQL native `INSERT INTO booking_requests (idempotency_key, seat_id, event_id, user_id, status, created_at) VALUES (...) ON CONFLICT (idempotency_key) DO NOTHING`. If `rowsUpdated == 0`, a duplicate request is detected without throwing Hibernate exceptions. The handler fetches the existing confirmed booking and returns `status = 'DUPLICATE'`, ensuring identical response and zero duplicate charges."
 
 ---
 
@@ -88,6 +88,26 @@ This document prepares you to defend every architectural and distributed systems
 
 ---
 
-### Q12: Why did you choose anonymous cookie session authentication instead of JWT / OAuth2?
+### Q12: Why did you choose in-memory rate limiting with Bucket4j instead of Redis?
 **Defense:**
-> "For a portfolio project focused on high-concurrency distributed systems and database locking correctness, JWT authentication would add token generation, refresh flows, and mock OAuth providers without adding distributed systems value. The `UserSessionFilter` assigns an anonymous UUID via an `HttpOnly` cookie on first visit, giving us consistent identity across WebSocket and REST calls while keeping the project lean, focused, and immediate to demonstrate."
+> "Bucket4j provides lock-free token bucket concurrency control inside JVM memory with zero network hop latency (~0.01ms). In our architecture, rate limiting protects the application from bot spamming seat locks (10 req/10s per user). When running multi-replica Kubernetes clusters, session stickiness at the Ingress controller directs user traffic to the same pod, maintaining precise token budgets without introducing Redis infrastructure. If global cross-cluster rate limiting is required, Bucket4j can plug into PostgreSQL via JDBC or Redis with zero changes to business services."
+
+---
+
+### Q13: How do you handle third-party payment gateway outages and transient latency spikes?
+**Defense:**
+> "We wrap the `PaymentService` with **Resilience4j Circuit Breaker** and **Exponential Backoff Retries**. If transient network errors occur, Resilience4j retries up to 3 times with exponential backoff. If the gateway suffers an extended outage and the failure rate exceeds 50% over a sliding window, the circuit transitions to `OPEN`, immediately short-circuiting downstream calls and triggering compensating transactions to release seat locks rather than letting locks stagnate or holding worker threads."
+
+---
+
+### Q14: How do you track distributed requests across 3 pods without Kafka or Jaeger/Zipkin?
+**Defense:**
+> "Every HTTP request is intercepted by `TraceIdFilter`, which extracts or generates an `X-Correlation-Id` header and populates SLF4J MDC `traceId`. Scheduled background jobs (`LockReaperJob`, `WaitingRoomAdmissionJob`) generate distinct trace scopes. Every log entry, API error response, and audit log write is stamped with `traceId` and `podHostname`. This provides immediate end-to-end auditability across replicas using standard centralized log shippers (like Promtail/Loki or CloudWatch)."
+
+---
+
+### Q15: How does the Admin Dashboard deliver real-time telemetry without putting read pressure on the transactional database?
+**Defense:**
+> "We employ a two-tiered real-time telemetry model:
+> 1. **In-Memory Ring Buffer**: `MetricsHistoryService` periodically snapshots engine stats into a 60-point ring buffer in memory (5s resolution), allowing instant rendering of latency and contention graphs via `GET /api/events/{eventId}/metrics-history` without querying PostgreSQL historical tables.
+> 2. **Push-Based Audit Stream**: Instead of polling the database, `AuditService` broadcasts seat lifecycle mutations over PostgreSQL `pg_notify('audit_log_updates', ...)` which fanned-out across all pods to STOMP WebSocket subscribers in real time."

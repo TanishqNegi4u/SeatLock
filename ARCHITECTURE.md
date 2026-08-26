@@ -1,6 +1,6 @@
 # SeatLock Architecture Deep Dive 📐
 
-This document provides a comprehensive technical exploration of SeatLock's concurrency design, distributed synchronization, and failure mitigation strategies.
+This document provides a comprehensive technical exploration of SeatLock's concurrency design, distributed synchronization, resilience mechanisms, and failure mitigation strategies.
 
 ---
 
@@ -77,7 +77,7 @@ private Integer version;
 
 ### 2.1 Cross-Pod WebSocket Fan-Out via `LISTEN` / `NOTIFY`
 
-In a multi-pod Kubernetes deployment (3 replicas), WebSocket connections are stateful and pinned to individual pods. When Pod 1 confirms a booking, Pods 2 and 3 must also notify their connected clients.
+In a multi-pod Kubernetes deployment (3 replicas), WebSocket connections are stateful and pinned to individual pods. When Pod 1 confirms a booking or records an audit entry, Pods 2 and 3 must also notify their connected clients.
 
 ```mermaid
 sequenceDiagram
@@ -102,7 +102,7 @@ sequenceDiagram
 #### Implementation Highlights:
 - **Transactional Guarantee**: `pg_notify` fires **strictly on transaction commit**. If the transaction rolls back, no notification is ever broadcasted.
 - **Dedicated Unpooled Connection**: PostgreSQL `LISTEN` requires a persistent, long-lived TCP connection. HikariCP pool recycling would terminate the channel subscription. We use a dedicated `DriverManager.getConnection()` instance managed by Spring's `SmartLifecycle`.
-- **Payload Discipline**: PostgreSQL payloads are capped at 8,000 bytes. SeatLock passes lightweight JSON event payloads containing only IDs and status strings.
+- **Payload Discipline**: PostgreSQL payloads are capped at 8,000 bytes. SeatLock passes lightweight JSON event payloads containing IDs and status strings.
 
 ---
 
@@ -119,41 +119,57 @@ SELECT pg_try_advisory_xact_lock(1001);
 
 ---
 
-## 3. Idempotency Gate Architecture
+## 3. Resilience, Rate Limiting & Tracing
+
+### 3.1 In-Memory Rate Limiting (Bucket4j)
+- **Token Bucket Algorithm**: 10 tokens per 10-second refill window per user (`seatlock_user_id` cookie or IP).
+- **Target Endpoints**: Intercepts `POST /api/events/*/seats/*/lock` and `POST /api/events/*/book`.
+- **HTTP 429 & Headers**: Returns HTTP 429 Too Many Requests with `Retry-After: 10`.
+- **Design Trade-off**: Stored in-memory in `ConcurrentHashMap<UUID, Bucket>` without Redis overhead. In a round-robin cluster, user rate limits apply per-pod or via sticky session routing.
+
+### 3.2 Circuit Breaking & Retries (Resilience4j)
+- **Circuit Breaker on Payment Gateway**: Tracks payment failures over a sliding window of 10 calls. When failure rate exceeds 50%, transitions to `OPEN` state to prevent cascading payment service exhaustion.
+- **Exponential Backoff Retries**: Up to 3 attempts with 100ms initial backoff and 2.0x multiplier on transient gateway timeouts.
+- **Compensating Rollback**: On terminal payment failure, the seat lock is immediately released back to `AVAILABLE` and logged with actor `USER` and reason `Payment failed — seat released (compensation)`.
+
+### 3.3 MDC Trace Correlation (`X-Correlation-Id`)
+- Every HTTP request receives or inherits an `X-Correlation-Id` UUID header.
+- Servlet filter `TraceIdFilter` populates SLF4J MDC `traceId`.
+- Background asynchronous jobs (`LockReaperJob`, `WaitingRoomAdmissionJob`) establish discrete MDC execution scopes (`reaper-<uuid>`, `admission-<uuid>`).
+- All error responses (`GlobalExceptionHandler`) return the correlation `traceId` for zero-friction debugging across multi-replica logs.
+
+---
+
+## 4. Idempotency Gate Architecture
 
 ```mermaid
 flowchart TD
-    Req[Incoming Booking Request] --> Insert[INSERT INTO booking_requests<br/>idempotency_key, seat_id, user_id]
-    Insert -->|Success: First Time| Pay[Process Payment]
-    Insert -->|DataIntegrityViolation: Duplicate| Query[SELECT FROM bookings<br/>WHERE idempotency_key = :key]
+    Req[Incoming Booking Request] --> Insert[INSERT INTO booking_requests<br/>idempotency_key, seat_id, user_id<br/>ON CONFLICT DO NOTHING]
+    Insert -->|1 Row Inserted: First Time| Pay[Process Payment]
+    Insert -->|0 Rows Inserted: Duplicate| Query[SELECT FROM bookings<br/>WHERE idempotency_key = :key]
     Query --> ReturnCached[Return Existing 200 OK Booking]
     Pay -->|Success| Confirm[Confirm Seat & Create Booking]
     Pay -->|Failure| Compensate[Release Lock & Return 409]
 ```
 
-- **Gate Mechanism**: PostgreSQL `UNIQUE (idempotency_key)` constraint.
-- **No Check-Then-Act Race**: We do not check if a key exists before inserting. The insert **is** the atomic gate.
+- **Atomic SQL Gate**: Native PostgreSQL `INSERT INTO booking_requests (...) VALUES (...) ON CONFLICT (idempotency_key) DO NOTHING`.
+- **Thread Safety**: 20 concurrent threads submitting identical idempotency keys simultaneously execute safely without corrupting the Hibernate session or duplicate bookings.
 
 ---
 
-## 4. Local Test Environment Constraints (i5 / 16GB Laptop)
+## 5. Observability: Prometheus, Grafana & Telemetry
 
-When profiling high-concurrency systems locally, hardware resource exhaustion can produce false-negative errors that mimic concurrency bugs:
+### 5.1 Metrics Registration (Micrometer)
+- **Actuator Endpoint**: `/actuator/prometheus` scraped every 5 seconds.
+- **Custom Business Metrics**:
+  - `seatlock_lock_contention_total` (Counter)
+  - `seatlock_booking_latency_seconds` (Timer with p50, p95, p99 percentiles)
+  - `seatlock_bookings_total` (Counter)
+  - `seatlock_seats_available`, `seatlock_seats_locked`, `seatlock_seats_booked` (Gauges)
 
-- **Resource Distribution**: The laptop runs Minikube (4 CPUs, 6GB RAM), 3 Spring Boot JVMs, PostgreSQL, the React dev server, and the k6 load generator simultaneously on a single 4-core / 8-thread machine.
-- **Local Target (300–500 VUs)**: This range tests real lock contention against 500 inventory items while leaving headroom for the host OS.
-- **Distinguishing False Negatives from Application Bugs**: When CPU exceeds 95%, the OS kernel may drop TCP handshakes (`ECONNRESET` or socket timeout). Before assuming a locking bug, verify host saturation via `kubectl top pods` and `docker stats`. Any 2,000+ VU runs are reserved for the cloud environment (Oracle VM).
-
----
-
-## 5. Deployment & Cost Reference Table
-
-| Environment | Monthly Cost | Trade-Off Accepted | Role in Interview |
-|---|---|---|---|
-| **Minikube (Local)** | **$0** | No real network, runs on host | **PRIMARY DEMO** (always reliable, zero network dependency) |
-| **Oracle VM + K3s (No LB)** | **$0** | No TLS, single node, manual IP | **CLOUD SCALE PROOF** (one-time deployment for 2,000+ VU run) |
-| **Oracle VM + K3s + Cloud LB** | **~$20** | Stable endpoint, TLS, single-node | Optional production upgrade |
-| **Managed DB Upgrade** | **~$45+** | Needed once traffic exceeds Neon free tier | Enterprise scale upgrade |
+### 5.2 Admin Dashboard & 60-Point Ring Buffer
+- **In-Memory Ring Buffer**: `MetricsHistoryService` retains the last 60 snapshot points (5s resolution) exposed at `GET /api/events/{eventId}/metrics-history`.
+- **Live Audit Feed**: Streamed via WebSocket STOMP topic `/topic/event/{eventId}/audit-log` tagged with the serving replica's `podHostname`.
 
 ---
 
@@ -165,3 +181,4 @@ When profiling high-concurrency systems locally, hardware resource exhaustion ca
 | **Cross-Pod Sync** | `pg_notify` payload capped at 8KB | Transition to **Apache Kafka** or **Redis Streams** |
 | **Waiting Room Queue** | DB table polling for queue position | Use **Redis Sorted Sets (`ZADD` / `ZRANK`)** |
 | **Seat Map Read Traffic** | Database queried for full map | Cache seat map in **Redis** with write-through cache |
+| **Single Postgres DB** | Single point of failure | Deploy **Patroni HA cluster** with streaming replication |
