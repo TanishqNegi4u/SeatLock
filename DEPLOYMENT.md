@@ -82,13 +82,20 @@ git clone https://github.com/seatlock/seatlock.git && cd seatlock
 # Update k8s/configmap.yaml with your Neon JDBC URL:
 # SPRING_DATASOURCE_URL: jdbc:postgresql://ep-xyz.us-east-2.aws.neon.tech/seatlock?sslmode=require
 
-# Update k8s/secret.yaml with your Neon username and password:
-# SPRING_DATASOURCE_USERNAME: <neon-user>
-# SPRING_DATASOURCE_PASSWORD: <neon-password>
+# Create k8s/secret.yaml from template (or via kubectl):
+cp k8s/secret.yaml.example k8s/secret.yaml
+# Edit k8s/secret.yaml with your Neon database credentials
+
+# Alternatively, create directly via kubectl command:
+kubectl create secret generic seatlock-secret \
+  --from-literal=SPRING_DATASOURCE_USERNAME=<neon-user> \
+  --from-literal=SPRING_DATASOURCE_PASSWORD=<neon-password> \
+  --from-literal=POSTGRES_USER=<neon-user> \
+  --from-literal=POSTGRES_PASSWORD=<neon-password> \
+  --from-literal=POSTGRES_DB=seatlock
 
 # Apply manifests without in-cluster Postgres (using Neon)
 kubectl apply -f k8s/configmap.yaml
-kubectl apply -f k8s/secret.yaml
 kubectl apply -f k8s/backend-deployment.yaml
 kubectl apply -f k8s/backend-service.yaml
 ```

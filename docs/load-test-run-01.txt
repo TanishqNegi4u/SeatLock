@@ -1,19 +1,19 @@
 ================================================================================
-SeatLock Concurrency Benchmark & DB Invariant Verification Record
+SeatLock Concurrency Benchmark Specification & Expected Output Format
 Target: 500 Virtual Users against 500 Seat Inventory
 Execution Command: ./scripts/run-load-test-and-verify.sh (or .ps1)
 ================================================================================
 
-[NOTE ON CAPTURED DATA]
-This file serves as the official load test capture log. When executing the
-automated verification pipeline against a running cluster (via ./demo.sh or
-./scripts/run-load-test-and-verify.ps1), the raw k6 console output and SQL
-assertions are piped directly into this document.
+[SPECIFICATION & BENCHMARK INVARIANT CRITERIA]
+This document specifies the target benchmark model and expected invariant
+output when executing the automated verification pipeline against a fully
+scaled 3-replica cluster.
 
-Below is the verification format and expected invariant assertion output:
+For real, captured test logs from our execution runs, see:
+- docs/load-test-captured-run.txt
 
 --------------------------------------------------------------------------------
-[1] k6 Concurrency Benchmark Output Format (k6/concurrency-test.js):
+[1] Expected k6 Concurrency Benchmark Output Format (k6/concurrency-test.js):
 --------------------------------------------------------------------------------
           /\      |‾‾| /‾‾/   /‾‾/   
      /\  /  \     |  |/  /   /  /    
@@ -36,7 +36,7 @@ Below is the verification format and expected invariant assertion output:
      lock_contentions...............: [Recorded Contention Events]
 
 --------------------------------------------------------------------------------
-[2] PostgreSQL Invariant Verification Output (scripts/verify-zero-overselling.sql):
+[2] Expected PostgreSQL Invariant Verification Output (scripts/verify-zero-overselling.sql):
 --------------------------------------------------------------------------------
 
 -- 1. Check total booked seats (MUST EQUAL 500)
@@ -73,7 +73,7 @@ ORDER BY event_count DESC;
  BOOKED    | USER       |         500
 
 ================================================================================
-INVARIANT CRITERIA:
+INVARIANT ASSERTIONS:
 1. (total_booked_seats == 500) -> 100% inventory booked without deadlocks.
 2. (duplicate_bookings_count == 0) -> Zero overselling guaranteed.
 3. (total_booked_seats == total_confirmed_bookings) -> Strict reconciliation.

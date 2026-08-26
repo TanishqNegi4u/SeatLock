@@ -12,3 +12,4 @@ node_modules/
 build/
 .env
 *.swp
+k8s/secret.yaml

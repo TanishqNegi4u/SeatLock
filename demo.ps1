@@ -42,6 +42,9 @@ docker build -t seatlock-frontend:latest ./seatlock-frontend
 
 # Step 4: Apply Kubernetes Manifests
 Write-Host "Applying Kubernetes Manifests (Postgres, 3-Replica Backend, NodePort)..." -ForegroundColor Yellow
+if (-not (Test-Path "./k8s/secret.yaml")) {
+    Copy-Item "./k8s/secret.yaml.example" "./k8s/secret.yaml"
+}
 kubectl apply -k ./k8s
 
 # Step 5: Wait for Postgres & Backend Pods to reach Ready status

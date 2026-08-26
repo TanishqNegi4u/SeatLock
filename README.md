@@ -18,7 +18,7 @@
 |---|---|
 | ❌ A generic CRUD application | ✅ A high-concurrency distributed systems portfolio piece |
 | ❌ A Redis distributed lock wrapper | ✅ ACID relational concurrency with zero split-brain risk |
-| ❌ Unverifiable claims | ✅ Fully automated load generation & PostgreSQL invariant assertions (see [`docs/load-test-run-01.txt`](docs/load-test-run-01.txt)) |
+| ❌ Unverifiable claims | ✅ Fully automated load generation & PostgreSQL invariant assertions (see captured run: [`docs/load-test-captured-run.txt`](docs/load-test-captured-run.txt) & spec: [`docs/load-test-run-01.txt`](docs/load-test-run-01.txt)) |
 
 ---
 
@@ -176,7 +176,17 @@ SELECT
    - During local testing, the laptop simultaneously hosts Minikube (4 CPUs, 6GB RAM), 3 Spring Boot JVMs, PostgreSQL, the React dev server, and the k6 load generator.
    - For this reason, local load tests are intentionally targeted at **300–500 concurrent VUs**, leaving CPU headroom for the host OS.
    - Host CPU saturation above 95% can cause false-positive connection resets (`ECONNRESET`). We monitor `docker stats` and `kubectl top pods` to distinguish host throttling from application concurrency bugs. 2,000+ VU tests are reserved for cloud VM runs.
-2. **What Breaks at 10x Traffic (50,000+ Users)**:
+2. **Single PostgreSQL Instance as a Single Point of Failure (SPOF)**:
+   - **Deliberate Simplification**: Running a single in-cluster PostgreSQL pod is an intentional design choice to keep local Minikube demos 100% free, lightweight, and reproducible on a 16GB developer laptop without cloud billing.
+   - **Production High Availability (HA) Architecture**: In production, enterprise deployments replace the single container with a **Patroni-managed PostgreSQL cluster**:
+     - Synchronous/asynchronous streaming replication across multiple availability zones.
+     - Distributed consensus (etcd or Consul using Raft) for automatic leader election and split-brain prevention.
+     - **PgBouncer** connection poolers for transaction multiplexing, routing read-only queries to standby replicas and write transactions to the active primary.
+     - Alternatively, fully managed multi-AZ services like AWS RDS Multi-AZ, Aurora PostgreSQL, or Neon serverless.
+3. **Waiting Room ≠ Rate Limiting**:
+   - **Virtual Waiting Room**: Coarse-grained FIFO admission queue designed to throttle the total volume of concurrent users entering the seating inventory during sudden flash-sale traffic spikes (macro-level load gating).
+   - **Per-User Rate Limiting**: Fine-grained endpoint throttling (e.g. 10 requests per 10 seconds per session token bucket via Bucket4j) implemented at the servlet layer to prevent individual abusive clients or automated scripts from spamming the lock and booking endpoints (micro-level defense).
+4. **What Breaks at 10x Traffic (50,000+ Users)**:
    - **PostgreSQL Connection Exhaustion**: At massive scale, direct DB connections max out. *Solution*: Introduce PgBouncer for transaction pooling.
    - **LISTEN/NOTIFY Payload Limit**: `pg_notify` has an 8,000-byte payload limit. *Solution*: For complex event topologies, transition to Apache Kafka or Redis Pub/Sub.
    - **Waiting Room Position Shuffling**: When 100,000 users query position simultaneously, querying `MAX(position)` becomes a hot spot. *Solution*: Redis Sorted Sets (`ZADD` / `ZRANK`).
