@@ -1,0 +1,127 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "SeatLock Engine Telemetry",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 80 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 1 },
+      "id": 2,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "expr": "seatlock_seats_available", "legendFormat": "Available", "refId": "A" },
+        { "expr": "seatlock_seats_locked", "legendFormat": "Locked", "refId": "B" },
+        { "expr": "seatlock_seats_booked", "legendFormat": "Booked", "refId": "C" }
+      ],
+      "title": "Real-time Seat Inventory Status",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2 }
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 1 },
+      "id": 3,
+      "targets": [
+        { "expr": "rate(seatlock_lock_contention_total[1m]) * 60", "legendFormat": "Contention Events/min", "refId": "A" }
+      ],
+      "title": "Lock Contention Velocity (events/min)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "s"
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 1 },
+      "id": 4,
+      "targets": [
+        { "expr": "seatlock_booking_latency_seconds{quantile=\"0.95\"}", "legendFormat": "p95 Latency", "refId": "A" },
+        { "expr": "seatlock_booking_latency_seconds{quantile=\"0.5\"}", "legendFormat": "p50 (Median) Latency", "refId": "B" }
+      ],
+      "title": "Booking Transaction Latency Percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 7 },
+      "id": 5,
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{area=\"heap\"}", "legendFormat": "Heap Used", "refId": "A" },
+        { "expr": "jvm_memory_max_bytes{area=\"heap\"}", "legendFormat": "Heap Max", "refId": "B" }
+      ],
+      "title": "JVM Heap Memory Allocation",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 7 },
+      "id": 6,
+      "targets": [
+        { "expr": "sum(rate(http_server_requests_seconds_count[1m])) by (status)", "legendFormat": "Status {{status}}", "refId": "A" }
+      ],
+      "title": "HTTP Throughput by Status Code (req/sec)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["seatlock", "concurrency", "telemetry"],
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "SeatLock Engine — Concurrency & Telemetry Overview",
+  "uid": "seatlock-overview",
+  "version": 1
+}
